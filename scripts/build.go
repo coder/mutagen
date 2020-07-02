@@ -18,7 +18,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/mutagen-io/mutagen/cmd"
+	"github.com/mutagen-io/mutagen/pkg/command"
 
 	"github.com/mutagen-io/mutagen/pkg/agent"
 	"github.com/mutagen-io/mutagen/pkg/mutagen"
@@ -446,7 +446,7 @@ func build() error {
 		if mode == "release" {
 			return errors.New("macOS required for release builds")
 		} else if mode == "slim" || mode == "release-slim" {
-			cmd.Warning("macOS agents will be built without cgo support")
+			command.Warning("macOS agents will be built without cgo support")
 		}
 	}
 
@@ -636,6 +636,6 @@ func build() error {
 
 func main() {
 	if err := build(); err != nil {
-		cmd.Fatal(err)
+		command.Fatal(err)
 	}
 }

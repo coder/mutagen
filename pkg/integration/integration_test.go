@@ -10,8 +10,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/mutagen-io/mutagen/cmd"
 	"github.com/mutagen-io/mutagen/pkg/agent"
+	"github.com/mutagen-io/mutagen/pkg/command"
 	"github.com/mutagen-io/mutagen/pkg/daemon"
 	"github.com/mutagen-io/mutagen/pkg/forwarding"
 	"github.com/mutagen-io/mutagen/pkg/grpcutil"
@@ -134,7 +134,7 @@ func TestMain(m *testing.M) {
 	// exiting.
 	result, err := testMainInternal(m)
 	if err != nil {
-		cmd.Error(err)
+		command.Error(err)
 	}
 
 	// Exit with the result.

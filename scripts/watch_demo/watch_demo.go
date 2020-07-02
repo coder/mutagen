@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/mutagen-io/mutagen/cmd"
+	"github.com/mutagen-io/mutagen/pkg/command"
 
 	"github.com/mutagen-io/mutagen/pkg/filesystem/watching"
 )
@@ -20,12 +20,12 @@ const (
 func main() {
 	// Verify that the platform supports recursive watching.
 	if !watching.RecursiveWatchingSupported {
-		cmd.Fatal(errors.New("recursive watching not supported"))
+		command.Fatal(errors.New("recursive watching not supported"))
 	}
 
 	// Parse arguments.
 	if len(os.Args) != 2 {
-		cmd.Fatal(errors.New("invalid number of arguments"))
+		command.Fatal(errors.New("invalid number of arguments"))
 	}
 	watchRoot := os.Args[1]
 
@@ -53,5 +53,5 @@ func main() {
 	}
 
 	// Wait for the watch error.
-	cmd.Fatal(errors.Wrap(<-watchErrors, "watching failed"))
+	command.Fatal(errors.Wrap(<-watchErrors, "watching failed"))
 }
