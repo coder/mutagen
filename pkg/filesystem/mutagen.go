@@ -66,6 +66,8 @@ const (
 	// MutagenLicensingDirectoryName is the name of the licensing data directory
 	// within the Mutagen data directory.
 	MutagenLicensingDirectoryName = "licensing"
+
+	HomeDirectorySpecial = "~"
 )
 
 // Mutagen computes (and optionally creates) subdirectories inside the Mutagen

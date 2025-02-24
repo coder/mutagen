@@ -50,20 +50,30 @@ func connect(logger *logging.Logger, transport Transport, mode, prompter string,
 	// environment or cmd.exe), we can leave the "exe" suffix off the target
 	// name. Fortunately this allows us to also avoid having to try the
 	// combination of forward slashes + ".exe" for Windows POSIX environments.
+	//
+	// HACK: When invoking on cmd.exe, we leave off the ~ prefix, since cmd.exe
+	// doesn't recognize it. In most cases the initial working directory for SSH
+	// commands is the home directory, but when possible we try to be explicit,
+	// to work around systems that use a different directory, such as Coder
+	// workspaces, which allow different initial working directories to be
+	// configured.
 	pathSeparator := "/"
+	pathComponents := []string{filesystem.HomeDirectorySpecial}
 	if cmdExe {
 		pathSeparator = "\\"
+		pathComponents = nil
 	}
 	dataDirectoryName := filesystem.MutagenDataDirectoryName
 	if mutagen.DevelopmentModeEnabled {
 		dataDirectoryName = filesystem.MutagenDataDirectoryDevelopmentName
 	}
-	agentInvocationPath := strings.Join([]string{
+	pathComponents = append(pathComponents,
 		dataDirectoryName,
 		filesystem.MutagenAgentsDirectoryName,
 		mutagen.Version,
 		BaseName,
-	}, pathSeparator)
+	)
+	agentInvocationPath := strings.Join(pathComponents, pathSeparator)
 
 	// Compute the command to invoke.
 	command := fmt.Sprintf("%s %s --%s=%s", agentInvocationPath, mode, FlagLogLevel, logger.Level())
@@ -204,7 +214,7 @@ func Dial(logger *logging.Logger, transport Transport, mode, prompter string) (i
 	}
 
 	// Attempt to install.
-	if err := install(logger, transport, prompter); err != nil {
+	if err := install(logger, transport, prompter, cmdExe); err != nil {
 		return nil, fmt.Errorf("unable to install agent: %w", err)
 	}
 

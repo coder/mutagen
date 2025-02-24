@@ -20,6 +20,10 @@ const (
 	// windowsCommandNotFoundFragment is a fragment of the error output returned
 	// on Windows systems when a command cannot be found.
 	windowsCommandNotFoundFragment = "The system cannot find the path specified"
+	// windowsPowershellCommandNotFoundFragment is a fragment of the error output
+	// returned on Windows systems running Powershell when a command cannot be
+	// found.
+	windowsPowershellCommandNotFoundFragment = "is not recognized as the name of a cmdlet, function, script file, or operable program."
 )
 
 // OutputIsPOSIXCommandNotFound returns whether or not a process' error output
@@ -38,6 +42,13 @@ func OutputIsWindowsInvalidCommand(output string) bool {
 // represents a command not found error on Windows.
 func OutputIsWindowsCommandNotFound(output string) bool {
 	return strings.Contains(output, windowsCommandNotFoundFragment)
+
+}
+
+// OutputIsWindowsPowershellCommandNotFound returns whether or not a process' error
+// output represents a command not found error from Windows running Powershell.
+func OutputIsWindowsPowershellCommandNotFound(output string) bool {
+	return strings.Contains(output, windowsPowershellCommandNotFoundFragment)
 }
 
 // ExtractExitErrorMessage is a utility function that will attempt to extract

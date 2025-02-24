@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -38,7 +39,7 @@ func Install() error {
 
 // install attempts to probe an endpoint and install the appropriate agent
 // binary over the specified transport.
-func install(logger *logging.Logger, transport Transport, prompter string) error {
+func install(logger *logging.Logger, transport Transport, prompter string, cmdExe bool) error {
 	// Detect the target platform.
 	goos, goarch, posix, err := probe(transport, prompter)
 	if err != nil {
@@ -68,14 +69,25 @@ func install(logger *logging.Logger, transport Transport, prompter string) error
 	if err != nil {
 		return fmt.Errorf("unable to generate UUID for agent copying: %w", err)
 	}
-	destination := BaseName + randomUUID.String()
+	remoteFileName := BaseName + randomUUID.String()
 	if goos == "windows" {
-		destination += ".exe"
+		remoteFileName += ".exe"
 	}
 	if posix {
-		destination = "." + destination
+		remoteFileName = "." + remoteFileName
 	}
-	if err = transport.Copy(agentExecutable, destination); err != nil {
+	// HACK: On cmd.exe systems, the ~ special character is not understood to mean the home directory, so we leave it
+	// off, and hope that the default copy directory is the home directory.
+	pathSeparator := "/"
+	pathComponents := []string{filesystem.HomeDirectorySpecial}
+	if cmdExe {
+		pathSeparator = "\\"
+		pathComponents = nil
+	}
+	pathComponents = append(pathComponents, remoteFileName)
+	fullRemotePath := strings.Join(pathComponents, pathSeparator)
+
+	if err = transport.Copy(agentExecutable, fullRemotePath); err != nil {
 		return fmt.Errorf("unable to copy agent binary: %w", err)
 	}
 
@@ -89,7 +101,7 @@ func install(logger *logging.Logger, transport Transport, prompter string) error
 		if err := prompting.Message(prompter, "Setting agent executability..."); err != nil {
 			return fmt.Errorf("unable to message prompter: %w", err)
 		}
-		executabilityCommand := fmt.Sprintf("chmod +x %s", destination)
+		executabilityCommand := fmt.Sprintf("chmod +x %s", fullRemotePath)
 		if err := run(transport, executabilityCommand); err != nil {
 			return fmt.Errorf("unable to set agent executability: %w", err)
 		}
@@ -100,10 +112,11 @@ func install(logger *logging.Logger, transport Transport, prompter string) error
 		return fmt.Errorf("unable to message prompter: %w", err)
 	}
 	var installCommand string
-	if posix {
-		installCommand = fmt.Sprintf("./%s %s", destination, CommandInstall)
+	if posix && cmdExe {
+		// TODO: is this path even possible?
+		installCommand = fmt.Sprintf("./%s %s", fullRemotePath, CommandInstall)
 	} else {
-		installCommand = fmt.Sprintf("%s %s", destination, CommandInstall)
+		installCommand = fmt.Sprintf("%s %s", fullRemotePath, CommandInstall)
 	}
 	if err := run(transport, installCommand); err != nil {
 		return fmt.Errorf("unable to invoke agent installation: %w", err)
