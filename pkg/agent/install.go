@@ -111,13 +111,7 @@ func install(logger *logging.Logger, transport Transport, prompter string, cmdEx
 	if err := prompting.Message(prompter, "Installing agent..."); err != nil {
 		return fmt.Errorf("unable to message prompter: %w", err)
 	}
-	var installCommand string
-	if posix && cmdExe {
-		// TODO: is this path even possible?
-		installCommand = fmt.Sprintf("./%s %s", fullRemotePath, CommandInstall)
-	} else {
-		installCommand = fmt.Sprintf("%s %s", fullRemotePath, CommandInstall)
-	}
+	installCommand := fmt.Sprintf("%s %s", fullRemotePath, CommandInstall)
 	if err := run(transport, installCommand); err != nil {
 		return fmt.Errorf("unable to invoke agent installation: %w", err)
 	}
