@@ -166,7 +166,7 @@ func newSession(
 		)
 		if err != nil {
 			logger.Info("Beta connection failure:", err)
-			return nil, fmt.Errorf("unable to connect to beta_: %w", err)
+			return nil, fmt.Errorf("unable to connect to beta: %w", err)
 		}
 	}
 
