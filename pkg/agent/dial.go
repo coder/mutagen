@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/mutagen-io/mutagen/pkg/prompting"
 	"io"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/mutagen-io/mutagen/pkg/logging"
 	"github.com/mutagen-io/mutagen/pkg/mutagen"
 	"github.com/mutagen-io/mutagen/pkg/platform/terminal"
+	"github.com/mutagen-io/mutagen/pkg/prompting"
 	streampkg "github.com/mutagen-io/mutagen/pkg/stream"
 )
 
@@ -147,6 +147,21 @@ func connect(logger *logging.Logger, transport Transport, mode, prompter string,
 // agentInvocationPath computes the agent invocation path, relative to the user's home
 // directory on the remote.
 func agentInvocationPath(cmdExe bool) string {
+	dataDirectoryName := filesystem.MutagenDataDirectoryName
+	if mutagen.DevelopmentModeEnabled {
+		dataDirectoryName = filesystem.MutagenDataDirectoryDevelopmentName
+	}
+	return remotePathFromHome(cmdExe,
+		dataDirectoryName,
+		filesystem.MutagenAgentsDirectoryName,
+		mutagen.Version,
+		BaseName,
+	)
+}
+
+// remotePathFromHome constructs a path string from the given components as a list of relative path components from
+// the user's home directory. If cmdExe is true, construct a path cmd.exe will understand.
+func remotePathFromHome(cmdExe bool, components ...string) string {
 	// Unless we have reason to assume that this is a cmd.exe environment, we
 	// construct a path using forward slashes. This will work for all POSIX
 	// systems and POSIX-like environments on Windows. If we know we're hitting
@@ -174,16 +189,7 @@ func agentInvocationPath(cmdExe bool) string {
 		pathSeparator = "\\"
 		pathComponents = nil
 	}
-	dataDirectoryName := filesystem.MutagenDataDirectoryName
-	if mutagen.DevelopmentModeEnabled {
-		dataDirectoryName = filesystem.MutagenDataDirectoryDevelopmentName
-	}
-	pathComponents = append(pathComponents,
-		dataDirectoryName,
-		filesystem.MutagenAgentsDirectoryName,
-		mutagen.Version,
-		BaseName,
-	)
+	pathComponents = append(pathComponents, components...)
 	return strings.Join(pathComponents, pathSeparator)
 }
 

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -76,16 +75,7 @@ func install(logger *logging.Logger, transport Transport, prompter string, cmdEx
 	if posix {
 		remoteFileName = "." + remoteFileName
 	}
-	// HACK: On cmd.exe systems, the ~ special character is not understood to mean the home directory, so we leave it
-	// off, and hope that the default copy directory is the home directory.
-	pathSeparator := "/"
-	pathComponents := []string{filesystem.HomeDirectorySpecial}
-	if cmdExe {
-		pathSeparator = "\\"
-		pathComponents = nil
-	}
-	pathComponents = append(pathComponents, remoteFileName)
-	fullRemotePath := strings.Join(pathComponents, pathSeparator)
+	fullRemotePath := remotePathFromHome(cmdExe, remoteFileName)
 
 	if err = transport.Copy(agentExecutable, fullRemotePath); err != nil {
 		return fmt.Errorf("unable to copy agent binary: %w", err)
