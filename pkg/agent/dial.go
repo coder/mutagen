@@ -34,39 +34,7 @@ const (
 // installation should be attempted and whether or not the remote environment is
 // cmd.exe-based.
 func connect(logger *logging.Logger, transport Transport, mode, prompter string, cmdExe bool) (io.ReadWriteCloser, bool, bool, error) {
-	// Compute the agent invocation command, relative to the user's home
-	// directory on the remote. Unless we have reason to assume that this is a
-	// cmd.exe environment, we construct a path using forward slashes. This will
-	// work for all POSIX systems and POSIX-like environments on Windows. If we
-	// know we're hitting a cmd.exe environment, then we use backslashes,
-	// otherwise the invocation won't work. Watching for cmd.exe to fail on
-	// commands with forward slashes is actually the way that we detect cmd.exe
-	// environments.
-	//
-	// HACK: We're assuming that none of these path components have spaces in
-	// them, but since we control all of them, this is probably okay.
-	//
-	// HACK: When invoking on Windows systems (whether inside a POSIX
-	// environment or cmd.exe), we can leave the "exe" suffix off the target
-	// name. Fortunately this allows us to also avoid having to try the
-	// combination of forward slashes + ".exe" for Windows POSIX environments.
-	pathSeparator := "/"
-	if cmdExe {
-		pathSeparator = "\\"
-	}
-	dataDirectoryName := filesystem.MutagenDataDirectoryName
-	if mutagen.DevelopmentModeEnabled {
-		dataDirectoryName = filesystem.MutagenDataDirectoryDevelopmentName
-	}
-	agentInvocationPath := strings.Join([]string{
-		dataDirectoryName,
-		filesystem.MutagenAgentsDirectoryName,
-		mutagen.Version,
-		BaseName,
-	}, pathSeparator)
-
-	// Compute the command to invoke.
-	command := fmt.Sprintf("%s %s --%s=%s", agentInvocationPath, mode, FlagLogLevel, logger.Level())
+	command := fmt.Sprintf("%s %s --%s=%s", agentInvocationPath(cmdExe), mode, FlagLogLevel, logger.Level())
 
 	// Set up (but do not start) an agent process.
 	message := "Connecting to agent (POSIX)..."
@@ -176,6 +144,55 @@ func connect(logger *logging.Logger, transport Transport, mode, prompter string,
 	return stream, false, false, nil
 }
 
+// agentInvocationPath computes the agent invocation path, relative to the user's home
+// directory on the remote.
+func agentInvocationPath(cmdExe bool) string {
+	dataDirectoryName := filesystem.MutagenDataDirectoryName
+	if mutagen.DevelopmentModeEnabled {
+		dataDirectoryName = filesystem.MutagenDataDirectoryDevelopmentName
+	}
+	return remotePathFromHome(cmdExe,
+		dataDirectoryName,
+		filesystem.MutagenAgentsDirectoryName,
+		mutagen.Version,
+		BaseName,
+	)
+}
+
+// remotePathFromHome constructs a path string from the given components as a list of relative path components from
+// the user's home directory. If cmdExe is true, construct a path cmd.exe will understand.
+func remotePathFromHome(cmdExe bool, components ...string) string {
+	// Unless we have reason to assume that this is a cmd.exe environment, we
+	// construct a path using forward slashes. This will work for all POSIX
+	// systems and POSIX-like environments on Windows. If we know we're hitting
+	// a cmd.exe environment, then we use backslashes, otherwise the invocation
+	// won't work. Watching for cmd.exe to fail on commands with forward slashes
+	// is actually the way that we detect cmd.exe environments.
+	//
+	// HACK: We're assuming that none of these path components have spaces in
+	// them, but since we control all of them, this is probably okay.
+	//
+	// HACK: When invoking on Windows systems (whether inside a POSIX
+	// environment or cmd.exe), we can leave the "exe" suffix off the target
+	// name. Fortunately this allows us to also avoid having to try the
+	// combination of forward slashes + ".exe" for Windows POSIX environments.
+	//
+	// HACK: When invoking on cmd.exe, we leave off the ~ prefix, since cmd.exe
+	// doesn't recognize it. In most cases the initial working directory for SSH
+	// commands is the home directory, but when possible we try to be explicit,
+	// to work around systems that use a different directory, such as Coder
+	// workspaces, which allow different initial working directories to be
+	// configured.
+	pathSeparator := "/"
+	pathComponents := []string{filesystem.HomeDirectorySpecial}
+	if cmdExe {
+		pathSeparator = "\\"
+		pathComponents = nil
+	}
+	pathComponents = append(pathComponents, components...)
+	return strings.Join(pathComponents, pathSeparator)
+}
+
 // Dial connects to an agent-based endpoint using the specified transport,
 // connection mode, and prompter.
 func Dial(logger *logging.Logger, transport Transport, mode, prompter string) (io.ReadWriteCloser, error) {
@@ -204,7 +221,7 @@ func Dial(logger *logging.Logger, transport Transport, mode, prompter string) (i
 	}
 
 	// Attempt to install.
-	if err := install(logger, transport, prompter); err != nil {
+	if err := install(logger, transport, prompter, cmdExe); err != nil {
 		return nil, fmt.Errorf("unable to install agent: %w", err)
 	}
 

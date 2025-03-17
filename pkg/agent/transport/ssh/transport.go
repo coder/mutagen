@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/mutagen-io/mutagen/pkg/agent"
 	"github.com/mutagen-io/mutagen/pkg/agent/transport"
@@ -192,6 +193,12 @@ func (t *sshTransport) Command(command string) (*exec.Cmd, error) {
 
 // ClassifyError implements the ClassifyError method of agent.Transport.
 func (t *sshTransport) ClassifyError(processState *os.ProcessState, errorOutput string) (bool, bool, error) {
+	// Windows Powershell introduces line breaks in the errorOutput, which get
+	// escaped before arriving at this function into a literal `\r` followed by
+	// a newline. Strip these out so that line breaks don't screw with our
+	// matching.
+	errorOutput = strings.ReplaceAll(errorOutput, "\\r\n", "")
+
 	// SSH faithfully returns exit codes and error output, so we can use direct
 	// methods for testing and classification. Note that we may get POSIX-like
 	// error codes back even from Windows remotes, but that indicates a POSIX
@@ -228,6 +235,10 @@ func (t *sshTransport) ClassifyError(processState *os.ProcessState, errorOutput 
 		return false, true, nil
 	} else if process.OutputIsWindowsCommandNotFound(errorOutput) {
 		return true, true, nil
+	} else if process.OutputIsWindowsPowershellCommandNotFound(errorOutput) {
+		// It's Windows Powershell, not cmd.exe, so try (re)installing, but set cmdExe
+		// to false.
+		return true, false, nil
 	}
 
 	// Just bail if we weren't able to determine the nature of the error.
