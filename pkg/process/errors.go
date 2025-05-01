@@ -23,7 +23,7 @@ const (
 	// windowsPowershellCommandNotFoundFragment is a fragment of the error output
 	// returned on Windows systems running Powershell when a command cannot be
 	// found.
-	// Different Windows versions use slightly error messages.
+	// Different Windows versions use slightly different error messages.
 	// i.e. "is not recognized as the name of a cmdlet, function, script file, or operable program."
 	//      "is not recognized as a name of a cmdlet, function, script file, or executable program."
 	windowsPowershellCommandNotFoundFragment = "cmdlet, function, script file, or"

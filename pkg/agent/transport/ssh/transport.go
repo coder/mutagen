@@ -156,6 +156,10 @@ func (t *sshTransport) Command(command string) (*exec.Cmd, error) {
 	// more efficient to compress at that layer, even with the slower Go
 	// implementation.
 	var sshArguments []string
+	if configPath := os.Getenv("MUTAGEN_SSH_CONFIG_PATH"); configPath != "" {
+		// According to `man ssh`, "none" is also a valid value for `-F`
+		sshArguments = append(sshArguments, "-F", configPath)
+	}
 	sshArguments = append(sshArguments, ssh.ConnectTimeoutFlag(connectTimeoutSeconds))
 	sshArguments = append(sshArguments, ssh.ServerAliveFlags(serverAliveIntervalSeconds, serverAliveCountMax)...)
 	if t.port != 0 {
