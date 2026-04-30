@@ -61,6 +61,105 @@ func TestCopy(t *testing.T) {
 	}
 }
 
+func TestCopyHomeRelativePathUsesSSHCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell command test is POSIX-only")
+	}
+
+	temporaryDirectory := t.TempDir()
+	fakeSSH := filepath.Join(temporaryDirectory, "ssh")
+	fakeSCP := filepath.Join(temporaryDirectory, "scp")
+	argumentsPath := filepath.Join(temporaryDirectory, "arguments")
+	copiedPath := filepath.Join(temporaryDirectory, "copied")
+	sourcePath := filepath.Join(temporaryDirectory, "source")
+
+	contents := []byte("agent contents")
+	if err := os.WriteFile(sourcePath, contents, 0600); err != nil {
+		t.Fatal("unable to write source file:", err)
+	}
+
+	sshScript := `#!/bin/sh
+{
+	for argument do
+		printf '%s\n' "$argument"
+	done
+} > "$MUTAGEN_TEST_COPY_ARGUMENTS"
+cat > "$MUTAGEN_TEST_COPY_OUTPUT"
+`
+	if err := os.WriteFile(fakeSSH, []byte(sshScript), 0700); err != nil {
+		t.Fatal("unable to write fake ssh:", err)
+	}
+
+	scpScript := `#!/bin/sh
+echo scp invoked > "$MUTAGEN_TEST_COPY_ARGUMENTS"
+exit 97
+`
+	if err := os.WriteFile(fakeSCP, []byte(scpScript), 0700); err != nil {
+		t.Fatal("unable to write fake scp:", err)
+	}
+
+	t.Setenv("MUTAGEN_SSH_PATH", temporaryDirectory)
+	t.Setenv("MUTAGEN_SSH_CONFIG_PATH", "")
+	t.Setenv("MUTAGEN_TEST_COPY_ARGUMENTS", argumentsPath)
+	t.Setenv("MUTAGEN_TEST_COPY_OUTPUT", copiedPath)
+
+	transport := &sshTransport{
+		user: "coder",
+		host: "example.com",
+		port: 22,
+	}
+	remoteName := filesystem.HomeDirectorySpecial + "/.mutagen-agent-test"
+	if err := transport.Copy(sourcePath, remoteName); err != nil {
+		t.Fatal("unable to copy file:", err)
+	}
+
+	copied, err := os.ReadFile(copiedPath)
+	if err != nil {
+		t.Fatal("unable to read copied file:", err)
+	} else if string(copied) != string(contents) {
+		t.Error("copied file contents do not match")
+	}
+
+	arguments, err := os.ReadFile(argumentsPath)
+	if err != nil {
+		t.Fatal("unable to read fake ssh arguments:", err)
+	}
+	argumentsString := string(arguments)
+	if strings.Contains(argumentsString, "scp invoked") {
+		t.Fatal("copy invoked scp instead of ssh")
+	}
+	if !strings.Contains(argumentsString, "coder@example.com") {
+		t.Error("ssh target was not present in arguments")
+	}
+	if !strings.Contains(argumentsString, "umask 077 && cat > \"$HOME\"/'.mutagen-agent-test'") {
+		t.Error("home-relative copy command was not present in arguments")
+	}
+}
+
+func TestHomeRelativePOSIXDestination(t *testing.T) {
+	if destination, ok := homeRelativePOSIXDestination("relative"); ok {
+		t.Errorf("relative path converted unexpectedly: %s", destination)
+	}
+
+	destination, ok := homeRelativePOSIXDestination("~/.mutagen-agent-test")
+	if !ok {
+		t.Fatal("home-relative path was not converted")
+	}
+	expected := `"$HOME"/'.mutagen-agent-test'`
+	if destination != expected {
+		t.Errorf("destination mismatch: expected %s, got %s", expected, destination)
+	}
+
+	destination, ok = homeRelativePOSIXDestination("~/path/with'quote")
+	if !ok {
+		t.Fatal("quoted path was not converted")
+	}
+	expected = `"$HOME"/'path/with'\''quote'`
+	if destination != expected {
+		t.Errorf("quoted destination mismatch: expected %s, got %s", expected, destination)
+	}
+}
+
 func TestCommandOutput(t *testing.T) {
 	// If localhost SSH support isn't available, then skip this test.
 	if os.Getenv("MUTAGEN_TEST_SSH") != "true" {
