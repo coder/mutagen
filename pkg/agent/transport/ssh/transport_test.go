@@ -105,3 +105,16 @@ func TestCommandOutput(t *testing.T) {
 		t.Error("output not in UTF-8 encoding")
 	}
 }
+
+func TestSSHConfigArguments(t *testing.T) {
+	t.Setenv("MUTAGEN_SSH_CONFIG_PATH", "")
+	if arguments := sshConfigArguments(); len(arguments) != 0 {
+		t.Fatal("unexpected SSH configuration arguments:", arguments)
+	}
+
+	t.Setenv("MUTAGEN_SSH_CONFIG_PATH", "none")
+	arguments := sshConfigArguments()
+	if len(arguments) != 2 || arguments[0] != "-F" || arguments[1] != "none" {
+		t.Fatal("unexpected SSH configuration arguments:", arguments)
+	}
+}
