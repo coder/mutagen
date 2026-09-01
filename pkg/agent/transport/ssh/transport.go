@@ -43,7 +43,7 @@ func init() {
 // sshConfigArguments computes SSH configuration arguments.
 func sshConfigArguments() []string {
 	if configPath := os.Getenv("MUTAGEN_SSH_CONFIG_PATH"); configPath != "" {
-		// According to `man ssh`, "none" is also a valid value for `-F`.
+		// "none" is treated as a special value: do not load any config file.
 		return []string{"-F", configPath}
 	}
 	return nil
