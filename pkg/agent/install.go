@@ -3,7 +3,9 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path"
 	"runtime"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -76,6 +78,24 @@ func install(logger *logging.Logger, transport Transport, prompter string, cmdEx
 		remoteFileName = "." + remoteFileName
 	}
 	fullRemotePath := remotePathFromHome(cmdExe, remoteFileName)
+	// On POSIX remotes, the agent binary is copied with scp and then executed
+	// over ssh using this same path. Historically that path is "~/"-prefixed and
+	// relies on "~" resolving identically for both steps. That assumption breaks
+	// when the remote SSH/SFTP working directory isn't the home directory (for
+	// example, Coder workspaces configured with an explicit directory, or
+	// devcontainers whose workspace folder differs from $HOME): scp resolves the
+	// path relative to the working directory while the ssh exec expands "~" to
+	// $HOME, so the freshly-copied binary can't be found. Resolve the absolute
+	// home directory once and use it for both the copy and the invocation so they
+	// agree regardless of the remote working directory. If resolution fails, fall
+	// back to the previous "~"-relative behavior.
+	if posix {
+		if home, homeErr := remoteHomeDirectory(transport); homeErr == nil {
+			fullRemotePath = path.Join(home, remoteFileName)
+		} else {
+			logger.Infof("unable to resolve remote home directory, using ~-relative agent path: %v", homeErr)
+		}
+	}
 
 	if err = transport.Copy(agentExecutable, fullRemotePath); err != nil {
 		return fmt.Errorf("unable to copy agent binary: %w", err)
@@ -108,4 +128,22 @@ func install(logger *logging.Logger, transport Transport, prompter string, cmdEx
 
 	// Success.
 	return nil
+}
+
+// remoteHomeDirectory resolves the absolute path of the home directory on a
+// POSIX remote by querying $HOME over the transport. It's used to construct an
+// absolute agent installation path so that the scp copy and ssh execution steps
+// agree even when the remote SSH/SFTP working directory isn't the home
+// directory (e.g. Coder workspaces with a configured directory or devcontainer
+// workspace folder).
+func remoteHomeDirectory(transport Transport) (string, error) {
+	out, err := output(transport, `echo "$HOME"`)
+	if err != nil {
+		return "", fmt.Errorf("unable to query remote home directory: %w", err)
+	}
+	home := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(home, "/") {
+		return "", fmt.Errorf("invalid remote home directory: %q", home)
+	}
+	return home, nil
 }
