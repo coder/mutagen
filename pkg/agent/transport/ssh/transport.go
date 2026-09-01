@@ -40,6 +40,15 @@ func init() {
 	}
 }
 
+// sshConfigArguments computes SSH configuration arguments.
+func sshConfigArguments() []string {
+	if configPath := os.Getenv("MUTAGEN_SSH_CONFIG_PATH"); configPath != "" {
+		// "none" is treated as a special value: do not load any config file.
+		return []string{"-F", configPath}
+	}
+	return nil
+}
+
 // sshTransport implements the agent.Transport interface using SSH.
 type sshTransport struct {
 	// user is the SSH user under which agents should be invoked.
@@ -96,6 +105,7 @@ func (t *sshTransport) Copy(localPath, remoteName string) error {
 
 	// Set up arguments.
 	var scpArguments []string
+	scpArguments = append(scpArguments, sshConfigArguments()...)
 	scpArguments = append(scpArguments, ssh.CompressionFlag())
 	scpArguments = append(scpArguments, ssh.ConnectTimeoutFlag(connectTimeoutSeconds))
 	scpArguments = append(scpArguments, ssh.ServerAliveFlags(serverAliveIntervalSeconds, serverAliveCountMax)...)
@@ -156,10 +166,7 @@ func (t *sshTransport) Command(command string) (*exec.Cmd, error) {
 	// more efficient to compress at that layer, even with the slower Go
 	// implementation.
 	var sshArguments []string
-	if configPath := os.Getenv("MUTAGEN_SSH_CONFIG_PATH"); configPath != "" {
-		// According to `man ssh`, "none" is also a valid value for `-F`
-		sshArguments = append(sshArguments, "-F", configPath)
-	}
+	sshArguments = append(sshArguments, sshConfigArguments()...)
 	sshArguments = append(sshArguments, ssh.ConnectTimeoutFlag(connectTimeoutSeconds))
 	sshArguments = append(sshArguments, ssh.ServerAliveFlags(serverAliveIntervalSeconds, serverAliveCountMax)...)
 	if t.port != 0 {
