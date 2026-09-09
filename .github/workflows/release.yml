@@ -35,7 +35,7 @@ jobs:
       - name: "Verify that the tag matches the Mutagen version"
         if: github.ref_type == 'tag'
         run: |
-          MUTAGEN_VERSION="$(go run ./cmd/mutagen version)"
+          MUTAGEN_VERSION="$(go run -tags mutagencli ./cmd/mutagen version)"
           if [[ "v${MUTAGEN_VERSION}" != "${GITHUB_REF_NAME}" ]]; then
             echo "Tag ${GITHUB_REF_NAME} doesn't match Mutagen version ${MUTAGEN_VERSION}" 1>&2
             exit 1
