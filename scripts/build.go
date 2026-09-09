@@ -375,6 +375,23 @@ func macOSCodeSign(path, identity string) error {
 	return codesign.Run()
 }
 
+// windowsCodeSign performs Windows code signing on the specified path by
+// invoking the specified command with the path as its only argument. The
+// signing tool itself (and its credentials) are left to the command so that
+// this script doesn't need to know about any particular signing service.
+func windowsCodeSign(path, command string) error {
+	// Create the code signing command.
+	codesign := exec.Command(command, path)
+
+	// Forward input, output, and error streams.
+	codesign.Stdin = os.Stdin
+	codesign.Stdout = os.Stdout
+	codesign.Stderr = os.Stderr
+
+	// Run code signing.
+	return codesign.Run()
+}
+
 // archiveBuilderCopyBufferSize determines the size of the copy buffer used when
 // generating archive files.
 // TODO: Figure out if we should set this on a per-machine basis. This value is
@@ -510,6 +527,7 @@ func copyFile(sourcePath, destinationPath string) error {
 
 var usage = `usage: build [-h|--help] [-m|--mode=<mode>] [--sspl]
        [--macos-codesign-identity=<identity>]
+       [--windows-codesign-command=<command>]
 
 The mode flag accepts four values: 'local', 'slim', 'release', and
 'release-slim'. 'local' will build CLI and agent binaries only for the current
@@ -527,6 +545,10 @@ to perform code signing on all macOS binaries in a fashion suitable for
 notarization by Apple. The codesign utility must be able to access the
 associated certificate and private keys in Keychain Access without a password if
 this script is operated in a non-interactive mode.
+
+If --windows-codesign-command specifies a non-empty value, then it will be
+invoked with the path of each Windows binary as its only argument after that
+binary is built, and it should sign the binary in place.
 `
 
 // build is the primary entry point.
@@ -534,10 +556,11 @@ func build() error {
 	// Parse command line arguments.
 	flagSet := pflag.NewFlagSet("build", pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
-	var mode, macosCodesignIdentity string
+	var mode, macosCodesignIdentity, windowsCodesignCommand string
 	var enableSSPLEnhancements bool
 	flagSet.StringVarP(&mode, "mode", "m", "slim", "specify the build mode")
 	flagSet.StringVar(&macosCodesignIdentity, "macos-codesign-identity", "", "specify the macOS code signing identity")
+	flagSet.StringVar(&windowsCodesignCommand, "windows-codesign-command", "", "specify the command used to code sign Windows binaries")
 	flagSet.BoolVar(&enableSSPLEnhancements, "sspl", false, "enable SSPL-licensed enhancements")
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
 		if err == pflag.ErrHelp {
@@ -654,6 +677,11 @@ func build() error {
 				return fmt.Errorf("unable to code sign agent for macOS: %w", err)
 			}
 		}
+		if windowsCodesignCommand != "" && target.GOOS == "windows" {
+			if err := windowsCodeSign(agentBuildPath, windowsCodesignCommand); err != nil {
+				return fmt.Errorf("unable to code sign agent for Windows: %w", err)
+			}
+		}
 	}
 
 	// Build CLI binaries.
@@ -667,6 +695,11 @@ func build() error {
 		if macosCodesignIdentity != "" && target.GOOS == "darwin" {
 			if err := macOSCodeSign(cliBuildPath, macosCodesignIdentity); err != nil {
 				return fmt.Errorf("unable to code sign CLI for macOS: %w", err)
+			}
+		}
+		if windowsCodesignCommand != "" && target.GOOS == "windows" {
+			if err := windowsCodeSign(cliBuildPath, windowsCodesignCommand); err != nil {
+				return fmt.Errorf("unable to code sign CLI for Windows: %w", err)
 			}
 		}
 	}
