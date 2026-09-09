@@ -9,14 +9,8 @@ import (
 // NOTE: Unfortunately the Install() method can't be tested directly, but it is
 // tested indirectly by integration tests.
 
-// echoTransport is a fake Transport whose Command returns a process that prints
-// a fixed string to standard output, simulating a remote returning the value of
-// $HOME. It's used to unit test remoteHomeDirectory without a real remote.
 type echoTransport struct {
-	// stdout is the standard output that the created command will print.
 	stdout string
-	// failCommand, if true, causes the created command to exit non-zero with no
-	// standard output.
 	failCommand bool
 }
 
