@@ -8,9 +8,16 @@ MUTAGEN_OS_NAME="$(go env GOOS)"
 
 # Perform a build that's appropriate for the platform.
 if [[ "${MUTAGEN_OS_NAME}" == "darwin" ]]; then
-    # Check if code signing is possible. If so, then set up the keychain and
-    # certificates that we'll need and perform a signed build. If not, then just
-    # perform a normal build.
+    # Check if Windows code signing is possible. If so, then have the build
+    # script invoke the signing command on each Windows binary that it builds.
+    MUTAGEN_WINDOWS_CODESIGN_FLAGS=()
+    if [[ ! -z "${WINDOWS_CODESIGN_COMMAND}" ]]; then
+        MUTAGEN_WINDOWS_CODESIGN_FLAGS=("--windows-codesign-command=${WINDOWS_CODESIGN_COMMAND}")
+    fi
+
+    # Check if macOS code signing is possible. If so, then set up the keychain
+    # and certificates that we'll need and perform a signed build. If not, then
+    # just perform a normal build.
     if [[ ! -z "${MACOS_CODESIGN_IDENTITY}" ]]; then
         # Compute the path and password for a temporary keychain where we'll import
         # the macOS code signing certificate and private key.
@@ -37,7 +44,7 @@ if [[ "${MUTAGEN_OS_NAME}" == "darwin" ]]; then
 
         # Perform a full release build with code signing. We enable
         # SSPL-licensed extensions by default.
-        go run scripts/build.go --mode=release --sspl --macos-codesign-identity="${MACOS_CODESIGN_IDENTITY}"
+        go run scripts/build.go --mode=release --sspl --macos-codesign-identity="${MACOS_CODESIGN_IDENTITY}" "${MUTAGEN_WINDOWS_CODESIGN_FLAGS[@]}"
 
         # Reset the default keychain and remove the temporary keychain.
         security default-keychain -s "${PREVIOUS_DEFAULT_KEYCHAIN}"
@@ -45,7 +52,7 @@ if [[ "${MUTAGEN_OS_NAME}" == "darwin" ]]; then
     else
         # Perform a full release build without code signing. We enable
         # SSPL-licensed extensions by default.
-        go run scripts/build.go --mode=release --sspl
+        go run scripts/build.go --mode=release --sspl "${MUTAGEN_WINDOWS_CODESIGN_FLAGS[@]}"
     fi
 
     # Determine the Mutagen version.
