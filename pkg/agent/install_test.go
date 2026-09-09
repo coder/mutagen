@@ -27,8 +27,6 @@ func (t *echoTransport) ClassifyError(_ *os.ProcessState, _ string) (bool, bool,
 	return false, false, nil
 }
 
-// TestRemoteHomeDirectory validates parsing and validation of the remote home
-// directory returned over a transport.
 func TestRemoteHomeDirectory(t *testing.T) {
 	testCases := []struct {
 		name        string
