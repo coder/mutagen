@@ -3,9 +3,10 @@
 This fork's release artifacts are the files that Coder Desktop downloads from
 `https://storage.googleapis.com/coder-desktop/mutagen/<version>/`:
 `mutagen-windows-{amd64,arm64}.exe`, `mutagen-darwin-{amd64,arm64}`, and a
-trimmed `mutagen-agents.tar.gz`. The Windows binaries (including the agents
-inside the bundle) are signed with Coder's EV certificate. Both are produced by
-the [release workflow](.github/workflows/release.yml).
+trimmed `mutagen-agents.tar.gz`. The macOS and Windows binaries (including
+the agents inside the bundle) are signed with the same certificates as Coder
+Desktop. All of them are produced by the
+[release workflow](.github/workflows/release.yml).
 
 ## Cutting a release
 
@@ -35,9 +36,20 @@ the [release workflow](.github/workflows/release.yml).
 
 ## Signing setup
 
-The workflow uses the same Windows signing setup as coder/coder: jsign with a
-Google Cloud KMS keystore, authenticated through Workload Identity Federation.
-It needs the following repository configuration:
+macOS binaries are signed with the `Developer ID Application: Coder
+Technologies Inc` certificate (the identity is hardcoded in the workflow) and
+need these secrets:
+
+- `MACOS_CERTIFICATE`: base64-encoded PKCS#12 export of the certificate and
+  its private key
+- `MACOS_CERTIFICATE_PWD`: the PKCS#12 password
+
+The binaries are not notarized here. Coder Desktop embeds them as-is and
+notarizes the whole app, which is why they have to carry this signature.
+
+Windows binaries use the same setup as coder/coder-desktop-windows: jsign with
+a Google Cloud KMS keystore, authenticated through Workload Identity
+Federation. It needs the following repository configuration:
 
 - Variable `GCP_CODE_SIGNING_WORKLOAD_ID_PROVIDER`: same value as coder/coder
 - Variable `GCP_CODE_SIGNING_SERVICE_ACCOUNT`:
@@ -48,6 +60,3 @@ It needs the following repository configuration:
 The service account, its Cloud KMS roles, and its workload identity binding
 for this repository are managed in coder/gcp under
 `projects/production/coder-ci`.
-
-macOS binaries are only signed when the `MACOS_CODESIGN_*` secrets used by
-`scripts/ci/build.sh` are configured; they are not at the moment.

@@ -1,9 +1,11 @@
 # Builds, signs, and publishes the artifacts that Coder Desktop consumes.
 #
-# Windows binaries (the CLI and the agents inside the agent bundle) are signed
-# with Coder's EV certificate through Google Cloud KMS, using the same jsign
-# setup as coder/coder. Pushing a v* tag creates a GitHub release; running the
-# workflow manually only uploads the artifacts to the workflow run.
+# The CLI binaries and the agents inside the agent bundle are signed like Coder
+# Desktop itself: macOS binaries with Coder's Developer ID Application
+# certificate (as in coder/coder-desktop-macos) and Windows binaries with
+# Coder's EV certificate through Google Cloud KMS (the jsign setup from
+# coder/coder-desktop-windows). Pushing a v* tag creates a GitHub release;
+# running the workflow manually only uploads the artifacts to the workflow run.
 name: Release
 
 on:
@@ -20,6 +22,10 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    env:
+      # Coder Desktop embeds the macOS binaries without re-signing them, so its
+      # notarization requires them to already carry this signature.
+      MACOS_CODESIGN_IDENTITY: "Developer ID Application: Coder Technologies Inc (4399GN35BJ)"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -68,12 +74,18 @@ jobs:
           EV_KEY: ${{ secrets.EV_KEY }}
           EV_TSA_URL: ${{ secrets.EV_TSA_URL }}
           GCLOUD_ACCESS_TOKEN: ${{ steps.gcloud_auth.outputs.access_token }}
-          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-          MACOS_CODESIGN_CERTIFICATE_AND_KEY: ${{ secrets.MACOS_CODESIGN_CERTIFICATE_AND_KEY }}
-          MACOS_CODESIGN_CERTIFICATE_AND_KEY_PASSWORD: ${{ secrets.MACOS_CODESIGN_CERTIFICATE_AND_KEY_PASSWORD }}
+          MACOS_CODESIGN_CERTIFICATE_AND_KEY: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CODESIGN_CERTIFICATE_AND_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
       - name: "Remove Windows code signing certificate"
         if: always()
         run: rm -f "${RUNNER_TEMP}/ev_cert.pem"
+      # Go ad hoc signs darwin/arm64 binaries by default, so require the
+      # Developer ID signature rather than just a valid one.
+      - name: "Verify macOS signatures"
+        run: |
+          codesign --verify --strict --verbose=2 \
+            -R="anchor apple generic and certificate leaf[subject.CN] = \"${MACOS_CODESIGN_IDENTITY}\"" \
+            build/cli/darwin_* build/agent/darwin_*
       - run: scripts/ci/sha256sum.sh
       - run: scripts/ci/bundle_coder_desktop.sh
       - uses: actions/upload-artifact@v4
