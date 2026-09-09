@@ -37,17 +37,17 @@ the [release workflow](.github/workflows/release.yml).
 
 The workflow uses the same Windows signing setup as coder/coder: jsign with a
 Google Cloud KMS keystore, authenticated through Workload Identity Federation.
-It needs the following repository configuration, with the same values as
-coder/coder:
+It needs the following repository configuration:
 
-- Variables: `GCP_CODE_SIGNING_WORKLOAD_ID_PROVIDER`,
-  `GCP_CODE_SIGNING_SERVICE_ACCOUNT`
-- Secrets: `EV_SIGNING_CERT`, `EV_KEYSTORE`, `EV_KEY`, `EV_TSA_URL`
+- Variable `GCP_CODE_SIGNING_WORKLOAD_ID_PROVIDER`: same value as coder/coder
+- Variable `GCP_CODE_SIGNING_SERVICE_ACCOUNT`:
+  `mutagen@coder-ci.iam.gserviceaccount.com`
+- Secrets `EV_SIGNING_CERT`, `EV_KEYSTORE`, `EV_KEY`, `EV_TSA_URL`: same values
+  as coder/coder
 
-The code signing service account must also allow this repository to
-impersonate it: grant `roles/iam.workloadIdentityUser` on the service account
-to the `attribute.repository/coder/mutagen` principal set of the workload
-identity pool, as was done for coder/coder-desktop-windows.
+The service account, its Cloud KMS roles, and its workload identity binding
+for this repository are managed in coder/gcp under
+`projects/production/coder-ci`.
 
 macOS binaries are only signed when the `MACOS_CODESIGN_*` secrets used by
 `scripts/ci/build.sh` are configured; they are not at the moment.
