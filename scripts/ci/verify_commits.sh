@@ -17,8 +17,9 @@ while read commit; do
     # Print status information.
     echo "> Verifying ${commit}"
 
-    # Enforce commit message line length restrictions.
-    MAXIMUM_LINE_LENGTH=$(git show --format="format:%B" --no-patch "${commit}" | wc -L)
+    # Enforce commit message line length restrictions. The sign-off line is
+    # exempt because GitHub noreply author addresses push it past the limit.
+    MAXIMUM_LINE_LENGTH=$(git show --format="format:%B" --no-patch "${commit}" | grep -v '^Signed-off-by: ' | wc -L)
     if [[ "${MAXIMUM_LINE_LENGTH}" -le "72" ]]; then
         echo "Commit message line length acceptable"
     else
