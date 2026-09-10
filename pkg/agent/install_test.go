@@ -10,7 +10,7 @@ import (
 // tested indirectly by integration tests.
 
 type echoTransport struct {
-	stdout string
+	stdout      string
 	failCommand bool
 }
 
