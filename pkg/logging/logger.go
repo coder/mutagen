@@ -85,44 +85,46 @@ const timestampFormat = "2006-01-02 15:04:05.000000"
 
 // write writes a log message to the underlying writer.
 func (l *Logger) write(timestamp time.Time, level Level, message string) {
-	// If a carriage return is found, then truncate the message at that point.
-	if index := strings.IndexByte(message, '\r'); index >= 0 {
-		message = message[:index] + "...\n"
-	}
-
-	// Ensure that the only newline character in the message appears at the end
-	// of the string. If one appears earlier, then truncate the message at that
-	// point. If none appears, then something has gone wrong with formatting.
-	if index := strings.IndexByte(message, '\n'); index < 0 {
+	// Sanity check the message formatting.
+	if !strings.Contains(message, "\n") {
 		panic("no newline character found in formatted message")
-	} else if index != len(message)-1 {
-		message = message[:index] + "...\n"
 	}
 
-	// Compute the log line.
-	var line string
+	// Compute the prefix that identifies the log line.
+	var prefix string
 	if l.scope != "" {
-		line = fmt.Sprintf("%s [%c] [%s] %s",
-			timestamp.Format(timestampFormat), level.abbreviation(), l.scope, message,
+		prefix = fmt.Sprintf("%s [%c] [%s] ",
+			timestamp.Format(timestampFormat), level.abbreviation(), l.scope,
 		)
 	} else {
-		line = fmt.Sprintf("%s [%c] %s",
-			timestamp.Format(timestampFormat), level.abbreviation(), message,
+		prefix = fmt.Sprintf("%s [%c] ",
+			timestamp.Format(timestampFormat), level.abbreviation(),
 		)
 	}
 
-	// Neutralize any control characters in the line.
-	line = terminal.NeutralizeControlCharacters(line)
+	// Write each line of the message as its own log line, carrying the prefix
+	// on each, so that a message spanning multiple lines stays attributable and
+	// intact. Messages carrying process error output are routinely multi-line,
+	// with the cause of a failure appearing after the first symptom of it, so
+	// discarding everything past the first line hides the information that the
+	// log exists to capture. Control characters are neutralized on each line,
+	// which also removes the need to truncate at a carriage return.
+	var lines strings.Builder
+	for _, line := range strings.Split(strings.TrimSuffix(message, "\n"), "\n") {
+		lines.WriteString(terminal.NeutralizeControlCharacters(prefix + line))
+		lines.WriteByte('\n')
+	}
 
-	// Write the line. We can't do much with the error here, so we don't try.
-	// Practically speaking, most io.Writer implementations perform retries if a
-	// short write occurs, so retrying here (on top of that logic) probably
-	// wouldn't help much. Even if we wanted to, we'd be better off wrapping the
-	// writer in a hypothetical RetryingWriter in order to better encapsulate
-	// that logic and to avoid having to add a lock outside the writer. In any
-	// case, Go's standard log package also discards analogous errors, so we'll
-	// do the same for the time being.
-	l.writer.Write([]byte(line))
+	// Write the lines in a single call so that they stay contiguous in the log
+	// when multiple goroutines are logging. We can't do much with the error
+	// here, so we don't try. Practically speaking, most io.Writer
+	// implementations perform retries if a short write occurs, so retrying here
+	// (on top of that logic) probably wouldn't help much. Even if we wanted to,
+	// we'd be better off wrapping the writer in a hypothetical RetryingWriter in
+	// order to better encapsulate that logic and to avoid having to add a lock
+	// outside the writer. In any case, Go's standard log package also discards
+	// analogous errors, so we'll do the same for the time being.
+	l.writer.Write([]byte(lines.String()))
 }
 
 // log provides logging with formatting semantics equivalent to fmt.Sprintln.
