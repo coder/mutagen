@@ -30,9 +30,11 @@ Desktop. All of them are produced by the
    to `gs://coder-desktop/mutagen/<tag>/` without rebuilding or re-signing them.
    The bucket permissions described below must be in place first.
 
-   Uploads refuse to overwrite existing objects. Re-running a successful
-   upload fails; after a partial failure, an operator must inspect and remove
-   the partial upload before retrying.
+   Direct object uploads avoid bucket listing permissions and use generation
+   preconditions to refuse overwrites. Cloud Storage checks each upload against
+   its `Content-MD5` header; `SHA256SUMS` is uploaded last. Re-running a
+   successful upload fails; after a partial failure, an operator must inspect
+   and remove the partial upload before retrying.
 
 4. Bump the Mutagen version in Coder Desktop: `$mutagenVersion` in
    `scripts/Get-Mutagen.ps1` (coder/coder-desktop-windows) and
