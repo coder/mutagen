@@ -23,12 +23,16 @@ Desktop. All of them are produced by the
    release with them attached. Running the workflow manually from the Actions
    tab builds the same artifacts from any ref and attaches them to the workflow
    run instead, which is useful for a dry run.
-3. Copy the artifacts to the bucket that Coder Desktop reads from:
+3. Run the [Upload release workflow](.github/workflows/upload-release.yml)
+   manually from the Actions tab, with the existing release tag (for example,
+   `v0.18.4`) as the `tag` input. It downloads the five release payloads and
+   `SHA256SUMS`, verifies the complete checksum manifest, and uploads the files
+   to `gs://coder-desktop/mutagen/<tag>/` without rebuilding or re-signing them.
+   The bucket permissions described below must be in place first.
 
-   ```bash
-   gh release download v0.18.4 -R coder/mutagen -p 'mutagen-*' -D mutagen-v0.18.4
-   gsutil cp mutagen-v0.18.4/* gs://coder-desktop/mutagen/v0.18.4/
-   ```
+   Uploads refuse to overwrite existing objects. Re-running a successful
+   upload fails; after a partial failure, an operator must inspect and remove
+   the partial upload before retrying.
 
 4. Bump the Mutagen version in Coder Desktop: `$mutagenVersion` in
    `scripts/Get-Mutagen.ps1` (coder/coder-desktop-windows) and
@@ -60,3 +64,17 @@ Federation. It needs the following repository configuration:
 The service account, its Cloud KMS roles, and its workload identity binding
 for this repository are managed in coder/gcp under
 `projects/production/coder-ci`.
+
+## Upload setup
+
+The upload workflow reuses the signing workflow's Workload Identity Federation
+variables and service account. In addition to its signing permissions, the
+account needs `roles/storage.objectCreator` on the `coder-desktop` bucket,
+with an IAM condition limiting writes to objects whose resource name starts
+with `projects/_/buckets/coder-desktop/objects/mutagen/`.
+
+The `coder-desktop` bucket already exists in project `coder-ci`. Its bucket
+resource, IAM policy, and import declarations are managed in coder/gcp under
+`projects/production/coder-ci`. Add the uploader binding to that existing
+policy before running the upload workflow; do not create another bucket.
+No service account key or new GitHub secret is needed.
