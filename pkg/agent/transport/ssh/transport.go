@@ -12,6 +12,7 @@ import (
 
 	"github.com/mutagen-io/mutagen/pkg/agent"
 	"github.com/mutagen-io/mutagen/pkg/agent/transport"
+	"github.com/mutagen-io/mutagen/pkg/filesystem"
 	"github.com/mutagen-io/mutagen/pkg/process"
 	"github.com/mutagen-io/mutagen/pkg/ssh"
 )
@@ -75,29 +76,30 @@ func NewTransport(user, host string, port uint16, prompter string) (agent.Transp
 func (t *sshTransport) Copy(localPath, remoteName string) error {
 	// HACK: On Windows, we attempt to use SCP executables that might not
 	// understand Windows paths because they're designed to run inside a POSIX-
-	// style environment (e.g. MSYS or Cygwin). To work around this, we run them
-	// in the same directory as the source file and just pass them the source
-	// base name. In order to compute the working directory, we need the local
-	// path to be absolute, but fortunately this is the case anyway for paths
-	// supplied to agent.Transport.Copy. This works fine on non-Windows-POSIX
-	// systems as well. We probably don't need this IsAbs sanity check, since
-	// path behavior is guaranteed by the Transport interface, but it's better
-	// to have as an invariant check.
+	// style environment (e.g. MSYS or Cygwin). To work around this, the SCP
+	// fallback runs in the same directory as the source file and just passes the
+	// source base name. In order to compute the working directory, we need the
+	// local path to be absolute, but fortunately this is the case anyway for
+	// paths supplied to agent.Transport.Copy. This works fine on non-Windows-
+	// POSIX systems as well. We probably don't need this IsAbs sanity check,
+	// since path behavior is guaranteed by the Transport interface, but it's
+	// better to have as an invariant check.
 	if !filepath.IsAbs(localPath) {
 		return errors.New("scp source path must be absolute")
 	}
+
+	// OpenSSH 9 and newer use SFTP for SCP by default. Some servers do not
+	// expand home-relative paths in SFTP and instead resolve them against the
+	// SSH session's configured working directory. For explicit POSIX home paths,
+	// stream the file through an SSH command so that the remote shell expands
+	// $HOME and the configured working directory is irrelevant.
+	if destination, ok := homeRelativePOSIXDestination(remoteName); ok {
+		return t.copyViaSSHCommand(localPath, destination)
+	}
+
 	workingDirectory, sourceBase := filepath.Split(localPath)
 
 	// Compute the destination URL.
-	// HACK: Since the remote name is supposed to be relative to the user's home
-	// directory, we'd ideally want to specify a URL of the form
-	// [user@]host:~/remoteName, but the ~/ paradigm isn't understood by
-	// Windows. Consequently, we assume that the default destination for SCP
-	// copies without a path prefix is the user's home directory, i.e. that the
-	// default working directory for the SCP receiving process is the user's
-	// home directory. Since we already make the assumption that the home
-	// directory is the default working directory for SSH commands, this is a
-	// reasonable additional assumption.
 	destinationURL := fmt.Sprintf("%s:%s", t.host, remoteName)
 	if t.user != "" {
 		destinationURL = fmt.Sprintf("%s@%s", t.user, destinationURL)
@@ -132,7 +134,7 @@ func (t *sshTransport) Copy(localPath, remoteName string) error {
 	// Add locale environment variables.
 	environment = addLocaleVariables(environment)
 
-	// Set prompting environment variables
+	// Set prompting environment variables.
 	environment, err = SetPrompterVariables(environment, t.prompter)
 	if err != nil {
 		return fmt.Errorf("unable to create prompter environment: %w", err)
@@ -150,6 +152,47 @@ func (t *sshTransport) Copy(localPath, remoteName string) error {
 	}
 
 	// Success.
+	return nil
+}
+
+func homeRelativePOSIXDestination(remoteName string) (string, bool) {
+	prefix := filesystem.HomeDirectorySpecial + "/"
+	if !strings.HasPrefix(remoteName, prefix) {
+		return "", false
+	}
+
+	relativePath := strings.TrimPrefix(remoteName, prefix)
+	if relativePath == "" {
+		return "", false
+	}
+
+	return fmt.Sprintf("\"$HOME\"/%s", posixSingleQuote(relativePath)), true
+}
+
+func posixSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func (t *sshTransport) copyViaSSHCommand(localPath, destination string) error {
+	source, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("unable to open source file: %w", err)
+	}
+	defer source.Close()
+
+	copyCommand, err := t.Command(fmt.Sprintf("umask 077 && cat > %s", destination))
+	if err != nil {
+		return fmt.Errorf("unable to set up SSH copy command: %w", err)
+	}
+	copyCommand.Stdin = source
+
+	if _, err = copyCommand.Output(); err != nil {
+		if message := process.ExtractExitErrorMessage(err); message != "" {
+			return fmt.Errorf("unable to run SSH copy command: %s", message)
+		}
+		return fmt.Errorf("unable to run SSH copy command: %w", err)
+	}
+
 	return nil
 }
 
