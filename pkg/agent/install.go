@@ -3,7 +3,9 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path"
 	"runtime"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -76,6 +78,13 @@ func install(logger *logging.Logger, transport Transport, prompter string, cmdEx
 		remoteFileName = "." + remoteFileName
 	}
 	fullRemotePath := remotePathFromHome(cmdExe, remoteFileName)
+	if posix {
+		if home, homeErr := remoteHomeDirectory(transport); homeErr == nil {
+			fullRemotePath = path.Join(home, remoteFileName)
+		} else {
+			logger.Infof("unable to resolve remote home directory, using ~-relative agent path: %v", homeErr)
+		}
+	}
 
 	if err = transport.Copy(agentExecutable, fullRemotePath); err != nil {
 		return fmt.Errorf("unable to copy agent binary: %w", err)
@@ -108,4 +117,16 @@ func install(logger *logging.Logger, transport Transport, prompter string, cmdEx
 
 	// Success.
 	return nil
+}
+
+func remoteHomeDirectory(transport Transport) (string, error) {
+	out, err := output(transport, `echo "$HOME"`)
+	if err != nil {
+		return "", fmt.Errorf("unable to query remote home directory: %w", err)
+	}
+	home := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(home, "/") {
+		return "", fmt.Errorf("invalid remote home directory: %q", home)
+	}
+	return home, nil
 }
