@@ -73,6 +73,8 @@ account needs `roles/storage.objectCreator` on the `coder-desktop` bucket,
 with an IAM condition limiting writes to objects whose resource name starts
 with `projects/_/buckets/coder-desktop/objects/mutagen/`.
 
-The existing signing setup does not grant bucket access. Add this binding in
-coder/gcp before running the upload workflow. No service account key or new
-GitHub secret is needed.
+The `coder-desktop` bucket already exists in project `coder-ci`. Its bucket
+resource, IAM policy, and import declarations are managed in coder/gcp under
+`projects/production/coder-ci`. Add the uploader binding to that existing
+policy before running the upload workflow; do not create another bucket.
+No service account key or new GitHub secret is needed.
