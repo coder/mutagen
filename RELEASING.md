@@ -30,9 +30,10 @@ Desktop. All of them are produced by the
    to `gs://coder-desktop/mutagen/<tag>/` without rebuilding or re-signing them.
    The bucket permissions described below must be in place first.
 
-   Uploads refuse to overwrite existing objects. Re-running a successful
-   upload fails; after a partial failure, an operator must inspect and remove
-   the partial upload before retrying.
+   Uploads use `gcloud storage cp` with generation preconditions to refuse
+   overwrites, and upload `SHA256SUMS` last. Re-running a successful upload
+   fails; after a partial failure, an operator must inspect and remove the
+   partial upload before retrying.
 
 4. Bump the Mutagen version in Coder Desktop: `$mutagenVersion` in
    `scripts/Get-Mutagen.ps1` (coder/coder-desktop-windows) and
@@ -73,8 +74,14 @@ account needs `roles/storage.objectCreator` on the `coder-desktop` bucket,
 with an IAM condition limiting writes to objects whose resource name starts
 with `projects/_/buckets/coder-desktop/objects/mutagen/`.
 
+The account also needs `roles/storage.objectViewer` on the bucket so
+`gcloud storage cp` can inspect destination objects and list the bucket.
+This read binding must be unconditional: object-prefix conditions cannot
+restrict bucket listing. It permits reading and listing the whole bucket,
+while writes remain limited to `mutagen/`. Neither role permits deletion.
+
 The `coder-desktop` bucket already exists in project `coder-ci`. Its bucket
 resource, IAM policy, and import declarations are managed in coder/gcp under
-`projects/production/coder-ci`. Add the uploader binding to that existing
+`projects/production/coder-ci`. Add both uploader bindings to that existing
 policy before running the upload workflow; do not create another bucket.
 No service account key or new GitHub secret is needed.
