@@ -13,8 +13,9 @@ Desktop. All of them are produced by the
 1. Bump the version in `pkg/mutagen/version.go` and merge that change.
 2. Tag the merged commit and push the tag. The tag must match the version
    (`v` prefix plus `mutagen version` output). Only repository admins,
-   maintainers and the `release-managers` team may push `v*` tags (the
-   `Release tags` ruleset in coder/github-org-terraform):
+   maintainers and the `coder-desktop-release-managers` and
+   `release-managers` teams may push `v*` tags (the `Release tags` ruleset
+   in coder/github-org-terraform):
 
    ```bash
    git tag -a v0.18.4 -m v0.18.4
