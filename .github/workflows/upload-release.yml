@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   upload:
+    # The EV signing service account (coder-ci) only trusts jobs in this
+    # environment, which only main and v* tags may use.
+    environment: code-signing
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
