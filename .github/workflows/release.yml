@@ -16,6 +16,9 @@ on:
 jobs:
   release:
     name: Release
+    # The EV signing service account (coder-ci) only trusts jobs in this
+    # environment, which only main and v* tags may use.
+    environment: code-signing
     # Release builds require macOS (see scripts/build.go).
     runs-on: macos-15
     timeout-minutes: 90

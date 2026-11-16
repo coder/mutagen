@@ -12,7 +12,9 @@ Desktop. All of them are produced by the
 
 1. Bump the version in `pkg/mutagen/version.go` and merge that change.
 2. Tag the merged commit and push the tag. The tag must match the version
-   (`v` prefix plus `mutagen version` output):
+   (`v` prefix plus `mutagen version` output). Only repository admins,
+   maintainers and the `release-managers` team may push `v*` tags (the
+   `Release tags` ruleset in coder/github-org-terraform):
 
    ```bash
    git tag -a v0.18.4 -m v0.18.4
@@ -21,10 +23,12 @@ Desktop. All of them are produced by the
 
    The release workflow builds and signs the artifacts and creates a GitHub
    release with them attached. Running the workflow manually from the Actions
-   tab builds the same artifacts from any ref and attaches them to the workflow
-   run instead, which is useful for a dry run.
+   tab on `main` builds the same artifacts and attaches them to the workflow
+   run instead, which is useful for a dry run. Signing jobs run in the
+   `code-signing` environment, which only `main` and `v*` tags may use, so a
+   manual run from any other branch fails.
 3. Run the [Upload release workflow](.github/workflows/upload-release.yml)
-   manually from the Actions tab, with the existing release tag (for example,
+   manually from the Actions tab on `main`, with the existing release tag (for example,
    `v0.18.4`) as the `tag` input. It downloads the five release payloads and
    `SHA256SUMS`, verifies the complete checksum manifest, and uploads the files
    to `gs://coder-desktop/mutagen/<tag>/` without rebuilding or re-signing them.
@@ -63,8 +67,11 @@ Federation. It needs the following repository configuration:
   as coder/coder
 
 The service account, its Cloud KMS roles, and its workload identity binding
-for this repository are managed in coder/gcp under
-`projects/production/coder-ci`.
+are managed in coder/gcp under `projects/production/coder-ci`. The binding
+only trusts jobs in this repository's `code-signing` environment
+(`repo:coder/mutagen:environment:code-signing`), which is managed in
+coder/github-org-terraform. Every job that authenticates as the service
+account, including the upload workflow, must run in that environment.
 
 ## Upload setup
 
