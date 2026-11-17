@@ -169,6 +169,8 @@ jobs:
             linux/arm64/v8
             linux/ppc64le
   release:
+    permissions:
+      contents: write
     name: Release
     runs-on: ubuntu-latest
     if: github.ref_type == 'tag'
