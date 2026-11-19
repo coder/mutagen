@@ -158,7 +158,7 @@ jobs:
     name: Build
     needs: [validate, approve]
     # Release builds require macOS (see scripts/build.go).
-    runs-on: macos-15
+    runs-on: ${{ github.repository_owner == 'coder' && 'depot-macos-26' || 'macos-26'}}
     if: >-
       ${{ !cancelled() && needs.validate.result == 'success' &&
       (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
