@@ -1,8 +1,7 @@
 # Set the workflow name.
 name: CI
 
-# Execute the workflow on branch pushes and pull requests. Tags are handled by
-# the release workflow.
+# Execute the workflow on branch pushes and pull requests.
 on:
   push:
     branches: ['**']

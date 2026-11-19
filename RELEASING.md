@@ -42,9 +42,11 @@ trimmed `mutagen-agents.tar.gz`. All of them are produced by the
    fails; after a partial failure, an operator must inspect and remove the
    partial upload before retrying.
 
-5. Bump the Mutagen version in Coder Desktop: `$mutagenVersion` in
-   `scripts/Get-Mutagen.ps1` (coder/coder-desktop-windows) and
-   `Coder-Desktop/Resources/.mutagenversion` (coder/coder-desktop-macos).
+5. Bump the Mutagen version and checksums in Coder Desktop:
+   `scripts/mutagen.json` (coder/coder-desktop-windows), and
+   `Coder-Desktop/Resources/.mutagenversion` plus the `MUTAGEN_SHA256_*`
+   values in the `Makefile` (coder/coder-desktop-macos). The checksums come
+   from the release's `SHA256SUMS`.
 
 ## Upload setup
 
