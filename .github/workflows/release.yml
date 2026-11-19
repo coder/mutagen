@@ -1,109 +1,353 @@
-# Builds the artifacts that Coder Desktop consumes. With a tag, it also
-# publishes them as a GitHub release; without one, it only uploads them to the
-# workflow run.
+# Releases Mutagen for Coder Desktop.
+#
+# A run with a version is a release. It is dispatched on main with the commit
+# on main to release, creates the vX.Y.Z tag once it is approved, builds the
+# artifacts, publishes them as a GitHub release and uploads them to the
+# coder-desktop bucket:
+#
+#   gh workflow run release.yml --repo coder/mutagen --ref main \
+#     -f version=v0.18.6 -f commit="$(git rev-parse origin/main)"
+#
+# A run without a version is a dry run. It builds the dispatched branch and
+# only uploads the artifacts to the workflow run.
 name: Release
+run-name: ${{ inputs.version && format('Release {0}', inputs.version) || 'Release dry run' }}
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Existing release tag to publish (e.g. v0.18.4); empty for a dry run'
+      version:
+        description: 'Version to release, e.g. v0.18.6. Leave empty for a dry run'
+        required: false
+        type: string
+      commit:
+        description: 'Full SHA of the commit on main to release. Required with a version'
         required: false
         type: string
 
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.version || github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # Checks the inputs. A release runs on main, for a commit on main whose
+  # source has the version; a dry run has no inputs.
+  validate:
+    name: Check the request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the inputs
+        env:
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          if [[ -z "$VERSION" ]]; then
+            [[ -z "$COMMIT" ]] || fail "commit is only for a release: give a version too."
+            exit 0
+          fi
+
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || fail "Dispatch a release on main, not on $GITHUB_REF."
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must look like v1.2.3, got '$VERSION'."
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "commit must be a full 40-character SHA, got '$COMMIT'."
+          git merge-base --is-ancestor "$COMMIT" "$GITHUB_SHA" || fail "$COMMIT is not on main."
+
+          # The version in pkg/mutagen/version.go of the commit.
+          source="$(git show "$COMMIT:pkg/mutagen/version.go")"
+          number() { sed -n -E "s/^[[:space:]]*Version$1 = ([0-9]+)\$/\1/p" <<<"$source"; }
+          tag="$(sed -n -E 's/^[[:space:]]*VersionTag = "(.*)"$/\1/p' <<<"$source")"
+          in_source="v$(number Major).$(number Minor).$(number Patch)${tag:+-$tag}"
+          [[ "$in_source" == "$VERSION" ]] || fail "$COMMIT has Mutagen version $in_source, not $VERSION."
+
+  # Creates the release tag as the coder-release-publisher App, once a reviewer
+  # of the release-approval environment approves the run. Releases only.
+  approve:
+    name: Approve and tag the release
+    needs: validate
+    runs-on: ubuntu-latest
+    if: ${{ inputs.version != '' }}
+    environment: release-approval
+    permissions:
+      contents: read
+      id-token: write # Cloud KMS signs the App's JWT
+    steps:
+      # For the tags and the history of main.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check the tag
+        id: check
+        env:
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must look like v1.2.3, got '$VERSION'."
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "commit must be a full 40-character SHA, got '$COMMIT'."
+          git merge-base --is-ancestor "$COMMIT" "$GITHUB_SHA" || fail "$COMMIT is not on main."
+
+          # A re-run finds the tag that the first attempt created.
+          if existing="$(git rev-parse --verify --quiet "refs/tags/$VERSION^{commit}")"; then
+            [[ "$existing" == "$COMMIT" ]] || fail "Tag $VERSION already exists at $existing, not at $COMMIT."
+            echo "Tag $VERSION already exists at $COMMIT."
+            echo "create=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The version is higher than the latest release, and the commit is
+          # not older than it.
+          latest="$(git tag --list 'v*' --sort=-version:refname | grep -E -m 1 '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+          if [[ -n "$latest" ]]; then
+            printf '%s\n' "$latest" "$VERSION" | sort -V -C || fail "$VERSION is not newer than $latest, the latest release."
+            git merge-base --is-ancestor "$latest" "$COMMIT" || fail "$COMMIT is older than the commit released as $latest."
+          fi
+
+          echo "create=true" >> "$GITHUB_OUTPUT"
+
+      # A token for this repository only.
+      - name: Generate release App token
+        id: app_token
+        if: ${{ steps.check.outputs.create == 'true' }}
+        uses: coder/github-app-token-action@00eaec58ee1bfea9c8b48655b7ab7470b07739e5 # main 2026-11-17
+        with:
+          client-id: ${{ secrets.CODER_RELEASE_PUBLISHER_APP_ID }}
+          kms-key: ${{ secrets.CODER_RELEASE_PUBLISHER_APP_KMS_KEY }}
+          workload-identity-provider: ${{ secrets.APP_KEYS_WORKLOAD_ID_PROVIDER }}
+          owner: coder
+          repositories: mutagen
+          permissions: |
+            contents: write
+            workflows: write
+
+      # An annotated tag, through the API.
+      - name: Create the tag
+        if: ${{ steps.check.outputs.create == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
+            -f tag="$VERSION" -f message="Release $VERSION" -f object="$COMMIT" -f type=commit \
+            --jq .sha)"
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$tag_object" >/dev/null
+          echo "Created tag $VERSION at $COMMIT."
+
+  # Builds the artifacts: from the commit in a release, after the approve job,
+  # and from the dispatched ref in a dry run, where that job is skipped.
   build:
     name: Build
+    needs: [validate, approve]
     # Release builds require macOS (see scripts/build.go).
     runs-on: macos-15
+    if: >-
+      ${{ !cancelled() && needs.validate.result == 'success' &&
+      (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
     timeout-minutes: 90
     permissions:
       contents: read
-    env:
-      RELEASE_TAG: ${{ inputs.tag }}
     outputs:
       manifest_sha256: ${{ steps.manifest.outputs.sha256 }}
     steps:
-      - name: "Validate the release tag"
-        if: inputs.tag != ''
-        run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid release tag: $RELEASE_TAG" >&2
-            exit 1
-          fi
-      - uses: actions/checkout@v4
-        if: inputs.tag == ''
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
-      - uses: actions/checkout@v4
-        if: inputs.tag != ''
-        with:
-          ref: refs/tags/${{ inputs.tag }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: "Verify that the tag is on main"
-        if: inputs.tag != ''
-        run: |
-          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
-            echo "Tag ${RELEASE_TAG} is not on main" 1>&2
-            exit 1
-          fi
-      - uses: actions/setup-go@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.4'
-      - name: "Install sha256sum"
+
+      - name: Install sha256sum
         run: brew install coreutils
-      - run: scripts/ci/setup_go.sh
-      - name: "Verify that the tag matches the Mutagen version"
-        if: inputs.tag != ''
+
+      - name: Download Go modules
+        run: scripts/ci/setup_go.sh
+
+      - name: Check the version
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          MUTAGEN_VERSION="$(go run -tags mutagencli ./cmd/mutagen version)"
-          if [[ "v${MUTAGEN_VERSION}" != "${RELEASE_TAG}" ]]; then
-            echo "Tag ${RELEASE_TAG} doesn't match Mutagen version ${MUTAGEN_VERSION}" 1>&2
+          set -euo pipefail
+          in_source="v$(go run -tags mutagencli ./cmd/mutagen version)"
+          if [[ "$in_source" != "$VERSION" ]]; then
+            echo "::error::The source has Mutagen version $in_source, not $VERSION."
             exit 1
           fi
-      - run: scripts/ci/build.sh
-      - run: scripts/ci/sha256sum.sh
-      - run: scripts/ci/bundle_coder_desktop.sh
-      - name: "Record the digest of the coder-desktop manifest"
+
+      - name: Build
+        run: scripts/ci/build.sh
+
+      - name: Compute checksums
+        run: scripts/ci/sha256sum.sh
+
+      - name: Bundle the Coder Desktop artifacts
+        run: scripts/ci/bundle_coder_desktop.sh
+
+      - name: Record the digest of the coder-desktop manifest
         id: manifest
         run: |
-          MANIFEST_DIGEST="$(sha256sum build/coder-desktop/SHA256SUMS)"
-          echo "sha256=${MANIFEST_DIGEST%% *}" >> "${GITHUB_OUTPUT}"
-      - uses: actions/upload-artifact@v4
+          set -euo pipefail
+          digest="$(sha256sum build/coder-desktop/SHA256SUMS)"
+          echo "sha256=${digest%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the Coder Desktop artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coder-desktop
           path: build/coder-desktop/*
           retention-days: 7
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload the release bundles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bundles
           path: build/release/*
           retention-days: 2
-  publish:
-    name: Publish
-    needs: build
-    if: inputs.tag != ''
-    environment: release
+
+  # Publishes the Coder Desktop artifacts as the GitHub release of the tag.
+  # Releases only.
+  release:
+    name: Publish the GitHub release
+    needs: [approve, build]
     runs-on: ubuntu-latest
+    if: >-
+      ${{ !cancelled() && inputs.version != '' &&
+      needs.approve.result == 'success' && needs.build.result == 'success' }}
+    environment: release
     timeout-minutes: 10
     permissions:
-      contents: write
-    env:
-      RELEASE_TAG: ${{ inputs.tag }}
-      MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+      contents: write # create the release
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download the Coder Desktop artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: coder-desktop
           path: coder-desktop
-      - name: "Verify the coder-desktop artifact"
+
+      - name: Check the download
         working-directory: coder-desktop
+        env:
+          MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
         run: |
-          sha256sum --check --strict - <<< "${MANIFEST_SHA256}  SHA256SUMS"
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "No checksum from the build job."
+          sha256sum --check --strict - <<<"$MANIFEST_SHA256  SHA256SUMS"
           sha256sum --check --strict SHA256SUMS
-      - name: "Create GitHub release"
+          # SHA256SUMS lists every other file.
+          [[ "$(find . -mindepth 1 | wc -l)" -eq "$(($(wc -l <SHA256SUMS) + 1))" ]] || fail "The artifact holds files that SHA256SUMS does not list."
+
+      # A re-run finds the release that an earlier attempt created.
+      - name: Create the release
         working-directory: coder-desktop
-        run: gh release create "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes SHA256SUMS mutagen-*
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! draft="$(gh release view "$VERSION" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            gh release create "$VERSION" --verify-tag --generate-notes SHA256SUMS mutagen-*
+            exit 0
+          fi
+
+          # An earlier attempt stopped between creating the draft and publishing it.
+          if [[ "$draft" == "true" ]]; then
+            gh release upload "$VERSION" SHA256SUMS mutagen-* --clobber
+            gh release edit "$VERSION" --draft=false --verify-tag
+            exit 0
+          fi
+
+          published="$(gh release view "$VERSION" --json assets --jq '.assets[] | "\(.digest)  \(.name)"' | LC_ALL=C sort)"
+          built="$(for file in SHA256SUMS mutagen-*; do echo "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)  $file"; done | LC_ALL=C sort)"
+          if [[ "$published" != "$built" ]]; then
+            echo "::error::$VERSION is already published, with other files than this run built."
+            exit 1
+          fi
+          echo "$VERSION is already published, with the files of this run."
+
+  # Uploads the Coder Desktop artifacts to the coder-desktop bucket. Releases
+  # only.
+  upload:
+    name: Upload to the bucket
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    if: >-
+      ${{ !cancelled() && inputs.version != '' &&
+      needs.build.result == 'success' && needs.release.result == 'success' }}
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # authenticate to Google Cloud
+    steps:
+      - name: Download the Coder Desktop artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coder-desktop
+          path: coder-desktop
+
+      - name: Check the download
+        working-directory: coder-desktop
+        env:
+          MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "No checksum from the build job."
+          sha256sum --check --strict - <<<"$MANIFEST_SHA256  SHA256SUMS"
+          sha256sum --check --strict SHA256SUMS
+          # SHA256SUMS lists every other file.
+          [[ "$(find . -mindepth 1 | wc -l)" -eq "$(($(wc -l <SHA256SUMS) + 1))" ]] || fail "The artifact holds files that SHA256SUMS does not list."
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_CODE_SIGNING_WORKLOAD_ID_PROVIDER }}
+          service_account: ${{ vars.GCP_CODE_SIGNING_SERVICE_ACCOUNT }}
+
+      - name: Setup GCloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      # SHA256SUMS goes last. A re-run finds the files that an earlier attempt
+      # uploaded.
+      - name: Upload the files
+        working-directory: coder-desktop
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          destination="gs://coder-desktop/mutagen/$VERSION"
+          for file in mutagen-* SHA256SUMS; do
+            if uploaded="$(gcloud storage cat "$destination/$file" 2>/dev/null | sha256sum)" &&
+              [[ "$uploaded" == "$(sha256sum <"$file")" ]]; then
+              echo "$destination/$file is already uploaded."
+              continue
+            fi
+            gcloud storage cp --if-generation-match=0 "$file" "$destination/"
+          done
