@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23.6'
+          go-version: '1.27.4'
       - name: "Install sha256sum"
         run: brew install coreutils
       - run: scripts/ci/setup_go.sh
@@ -50,7 +50,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        goversion: ['1.22.12', '1.23.6']
+        goversion: ['1.26.11', '1.27.4']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23.6'
+          go-version: '1.27.4'
       - run: scripts/ci/setup_go.sh
         shell: bash
       - run: scripts/ci/setup_docker.sh
