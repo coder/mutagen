@@ -122,23 +122,6 @@ jobs:
 
           echo "create=true" >> "$GITHUB_OUTPUT"
 
-      - name: Check the App secrets
-        if: ${{ steps.check.outputs.create == 'true' }}
-        env:
-          HAS_APP_ID: ${{ secrets.CODER_RELEASE_PUBLISHER_APP_ID != '' }}
-          HAS_KMS_KEY: ${{ secrets.CODER_RELEASE_PUBLISHER_APP_KMS_KEY != '' }}
-          HAS_WORKLOAD_ID_PROVIDER: ${{ secrets.APP_KEYS_WORKLOAD_ID_PROVIDER != '' }}
-        run: |
-          set -euo pipefail
-          missing=()
-          [[ "$HAS_APP_ID" == "true" ]] || missing+=(CODER_RELEASE_PUBLISHER_APP_ID)
-          [[ "$HAS_KMS_KEY" == "true" ]] || missing+=(CODER_RELEASE_PUBLISHER_APP_KMS_KEY)
-          [[ "$HAS_WORKLOAD_ID_PROVIDER" == "true" ]] || missing+=(APP_KEYS_WORKLOAD_ID_PROVIDER)
-          if [[ "${#missing[@]}" -gt 0 ]]; then
-            echo "::error::Secrets missing from the release-approval environment: ${missing[*]}"
-            exit 1
-          fi
-
       # A token for this repository only.
       - name: Generate release App token
         id: app_token
