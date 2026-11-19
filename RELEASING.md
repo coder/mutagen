@@ -3,9 +3,7 @@
 This fork's release artifacts are the files that Coder Desktop downloads from
 `https://storage.googleapis.com/coder-desktop/mutagen/<version>/`:
 `mutagen-windows-{amd64,arm64}.exe`, `mutagen-darwin-{amd64,arm64}`, and a
-trimmed `mutagen-agents.tar.gz`. The macOS and Windows binaries (including
-the agents inside the bundle) are signed with the same certificates as Coder
-Desktop. All of them are produced by the
+trimmed `mutagen-agents.tar.gz`. All of them are produced by the
 [release workflow](.github/workflows/release.yml).
 
 ## Cutting a release
@@ -21,75 +19,51 @@ Desktop. All of them are produced by the
    git tag -a v0.18.4 -m v0.18.4
    git push origin v0.18.4
    ```
+3. Run the [Release workflow](.github/workflows/release.yml) manually from
+   the Actions tab on `main`, with the tag (for example, `v0.18.4`) as the
+   `tag` input. It checks that the tag is on `main` and matches the version,
+   builds the artifacts from the tag, and creates a GitHub release with them
+   attached. The publishing job runs in the `release` environment, so the run
+   waits for approval before the release is created.
 
-   The release workflow builds and signs the artifacts and creates a GitHub
-   release with them attached. Running the workflow manually from the Actions
-   tab on `main` builds the same artifacts and attaches them to the workflow
-   run instead, which is useful for a dry run. Signing jobs run in the
-   `code-signing` environment, which only `main` and `v*` tags may use, so a
-   manual run from any other branch fails.
-3. Run the [Upload release workflow](.github/workflows/upload-release.yml)
-   manually from the Actions tab on `main`, with the existing release tag (for example,
-   `v0.18.4`) as the `tag` input. It downloads the five release payloads and
-   `SHA256SUMS`, verifies the complete checksum manifest, and uploads the files
-   to `gs://coder-desktop/mutagen/<tag>/` without rebuilding or re-signing them.
-   The bucket permissions described below must be in place first.
+   Running the workflow without a `tag` builds the selected branch and
+   attaches the artifacts to the workflow run only, which is useful for a dry
+   run.
+4. Run the [Upload release workflow](.github/workflows/upload-release.yml)
+   manually from the Actions tab on `main`, with the same tag as the `tag`
+   input. It downloads the five release payloads and `SHA256SUMS`, verifies
+   the complete checksum manifest, and uploads the files to
+   `gs://coder-desktop/mutagen/<tag>/` without rebuilding them. It also runs
+   in the `release` environment and waits for approval, and it uses the
+   bucket permissions described below.
 
    Uploads use `gcloud storage cp` with generation preconditions to refuse
    overwrites, and upload `SHA256SUMS` last. Re-running a successful upload
    fails; after a partial failure, an operator must inspect and remove the
    partial upload before retrying.
 
-4. Bump the Mutagen version in Coder Desktop: `$mutagenVersion` in
-   `scripts/Get-Mutagen.ps1` (coder/coder-desktop-windows) and
-   `Coder-Desktop/Resources/.mutagenversion` (coder/coder-desktop-macos).
-
-## Signing setup
-
-macOS binaries are signed with the `Developer ID Application: Coder
-Technologies Inc` certificate (the identity is hardcoded in the workflow) and
-need these secrets:
-
-- `MACOS_CERTIFICATE`: base64-encoded PKCS#12 export of the certificate and
-  its private key
-- `MACOS_CERTIFICATE_PWD`: the PKCS#12 password
-
-The binaries are not notarized here. Coder Desktop embeds them as-is and
-notarizes the whole app, which is why they have to carry this signature.
-
-Windows binaries use the same setup as coder/coder-desktop-windows: jsign with
-a Google Cloud KMS keystore, authenticated through Workload Identity
-Federation. It needs the following repository configuration:
-
-- Variable `GCP_CODE_SIGNING_WORKLOAD_ID_PROVIDER`: same value as coder/coder
-- Variable `GCP_CODE_SIGNING_SERVICE_ACCOUNT`:
-  `mutagen@coder-ci.iam.gserviceaccount.com`
-- Secrets `EV_SIGNING_CERT`, `EV_KEYSTORE`, `EV_KEY`, `EV_TSA_URL`: same values
-  as coder/coder
-
-The service account, its Cloud KMS roles, and its workload identity binding
-are managed in coder/gcp under `projects/production/coder-ci`. The binding
-only trusts jobs in this repository's `code-signing` environment
-(`repo:coder/mutagen:environment:code-signing`), which is managed in
-coder/github-org-terraform. Every job that authenticates as the service
-account, including the upload workflow, must run in that environment.
+5. Bump the Mutagen version and checksums in Coder Desktop:
+   `scripts/mutagen.json` (coder/coder-desktop-windows), and
+   `Coder-Desktop/Resources/.mutagenversion` plus the `MUTAGEN_SHA256_*`
+   values in the `Makefile` (coder/coder-desktop-macos). The checksums come
+   from the release's `SHA256SUMS`.
 
 ## Upload setup
 
-The upload workflow reuses the signing workflow's Workload Identity Federation
-variables and service account. In addition to its signing permissions, the
-account needs `roles/storage.objectCreator` on the `coder-desktop` bucket,
-with an IAM condition limiting writes to objects whose resource name starts
-with `projects/_/buckets/coder-desktop/objects/mutagen/`.
+The upload workflow authenticates to Google Cloud through Workload Identity
+Federation and runs in the `release` environment, which only `main` may use.
+It reads these repository variables:
 
-The account also needs `roles/storage.objectViewer` on the bucket so
-`gcloud storage cp` can inspect destination objects and list the bucket.
-This read binding must be unconditional: object-prefix conditions cannot
-restrict bucket listing. It permits reading and listing the whole bucket,
-while writes remain limited to `mutagen/`. Neither role permits deletion.
+- `GCP_CODE_SIGNING_WORKLOAD_ID_PROVIDER`
+- `GCP_CODE_SIGNING_SERVICE_ACCOUNT`:
+  `mutagen@coder-ci.iam.gserviceaccount.com`
 
-The `coder-desktop` bucket already exists in project `coder-ci`. Its bucket
-resource, IAM policy, and import declarations are managed in coder/gcp under
-`projects/production/coder-ci`. Add both uploader bindings to that existing
-policy before running the upload workflow; do not create another bucket.
-No service account key or new GitHub secret is needed.
+The service account needs two roles on the `coder-desktop` bucket:
+
+- `roles/storage.objectCreator`, with an IAM condition limiting writes to
+  objects whose resource name starts with
+  `projects/_/buckets/coder-desktop/objects/mutagen/`
+- `roles/storage.objectViewer`, without a condition
+
+The bucket is in project `coder-ci`. Its resource and IAM policy are managed
+in coder/gcp under `projects/production/coder-ci`.

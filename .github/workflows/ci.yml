@@ -1,8 +1,7 @@
 # Set the workflow name.
 name: CI
 
-# Execute the workflow on branch pushes and pull requests. Tags are handled by
-# the release workflow.
+# Execute the workflow on branch pushes and pull requests.
 on:
   push:
     branches: ['**']
@@ -44,27 +43,7 @@ jobs:
       - run: scripts/ci/analyze.sh
       - run: scripts/ci/test.sh
       - run: scripts/ci/build.sh
-        env:
-          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-          MACOS_CODESIGN_CERTIFICATE_AND_KEY: ${{ secrets.MACOS_CODESIGN_CERTIFICATE_AND_KEY }}
-          MACOS_CODESIGN_CERTIFICATE_AND_KEY_PASSWORD: ${{ secrets.MACOS_CODESIGN_CERTIFICATE_AND_KEY_PASSWORD }}
-      - run: scripts/ci/notarize.sh
-        if: github.ref_type == 'tag'
-        env:
-          MACOS_NOTARIZE_APPLE_ID: ${{ secrets.MACOS_NOTARIZE_APPLE_ID }}
-          MACOS_NOTARIZE_APP_SPECIFIC_PASSWORD: ${{ secrets.MACOS_NOTARIZE_APP_SPECIFIC_PASSWORD }}
-          MACOS_NOTARIZE_TEAM_ID: ${{ secrets.MACOS_NOTARIZE_TEAM_ID }}
       - run: scripts/ci/sha256sum.sh
-      - uses: crazy-max/ghaction-import-gpg@v6
-        id: import_gpg
-        if: github.ref_type == 'tag'
-        with:
-          gpg_private_key: ${{ secrets.GPG_SIGNING_KEY }}
-          passphrase: ${{ secrets.GPG_SIGNING_KEY_PASSWORD }}
-      - run: scripts/ci/sha256sign.sh
-        if: github.ref_type == 'tag'
-        env:
-          SHA256_GPG_SIGNING_IDENTITY: ${{ steps.import_gpg.outputs.email }}
       - uses: actions/upload-artifact@v4
         with:
           name: bundles
