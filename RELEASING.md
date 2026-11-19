@@ -4,7 +4,7 @@ This fork's release artifacts are the files that Coder Desktop downloads from
 `https://storage.googleapis.com/coder-desktop/mutagen/<version>/`:
 `mutagen-windows-{amd64,arm64}.exe`, `mutagen-darwin-{amd64,arm64}`, and a
 trimmed `mutagen-agents.tar.gz`. All of them are produced by the
-[release workflow](.github/workflows/release.yml), which does not sign them.
+[release workflow](.github/workflows/release.yml).
 
 ## Cutting a release
 
@@ -19,50 +19,49 @@ trimmed `mutagen-agents.tar.gz`. All of them are produced by the
    git tag -a v0.18.4 -m v0.18.4
    git push origin v0.18.4
    ```
+3. Run the [Release workflow](.github/workflows/release.yml) manually from
+   the Actions tab on `main`, with the tag (for example, `v0.18.4`) as the
+   `tag` input. It checks that the tag is on `main` and matches the version,
+   builds the artifacts from the tag, and creates a GitHub release with them
+   attached. The publishing job runs in the `release` environment, so the run
+   waits for approval before the release is created.
 
-   The release workflow builds the artifacts and creates a GitHub release
-   with them attached. Running the workflow manually from the Actions tab
-   builds the same artifacts and attaches them to the workflow run instead,
-   which is useful for a dry run.
-3. Run the [Upload release workflow](.github/workflows/upload-release.yml)
-   manually from the Actions tab on `main`, with the existing release tag (for example,
-   `v0.18.4`) as the `tag` input. It downloads the five release payloads and
-   `SHA256SUMS`, verifies the complete checksum manifest, and uploads the files
-   to `gs://coder-desktop/mutagen/<tag>/` without rebuilding them.
-   The bucket permissions described below must be in place first.
+   Running the workflow without a `tag` builds the selected branch and
+   attaches the artifacts to the workflow run only, which is useful for a dry
+   run.
+4. Run the [Upload release workflow](.github/workflows/upload-release.yml)
+   manually from the Actions tab on `main`, with the same tag as the `tag`
+   input. It downloads the five release payloads and `SHA256SUMS`, verifies
+   the complete checksum manifest, and uploads the files to
+   `gs://coder-desktop/mutagen/<tag>/` without rebuilding them. It also runs
+   in the `release` environment and waits for approval, and it uses the
+   bucket permissions described below.
 
    Uploads use `gcloud storage cp` with generation preconditions to refuse
    overwrites, and upload `SHA256SUMS` last. Re-running a successful upload
    fails; after a partial failure, an operator must inspect and remove the
    partial upload before retrying.
 
-4. Bump the Mutagen version in Coder Desktop: `$mutagenVersion` in
+5. Bump the Mutagen version in Coder Desktop: `$mutagenVersion` in
    `scripts/Get-Mutagen.ps1` (coder/coder-desktop-windows) and
    `Coder-Desktop/Resources/.mutagenversion` (coder/coder-desktop-macos).
 
 ## Upload setup
 
 The upload workflow authenticates to Google Cloud through Workload Identity
-Federation and runs in the `code-signing` environment, which only `main` and
-`v*` tags may use. It needs these repository variables:
+Federation and runs in the `release` environment, which only `main` may use.
+It reads these repository variables:
 
 - `GCP_CODE_SIGNING_WORKLOAD_ID_PROVIDER`
 - `GCP_CODE_SIGNING_SERVICE_ACCOUNT`:
   `mutagen@coder-ci.iam.gserviceaccount.com`
 
-The service account needs `roles/storage.objectCreator` on the
-`coder-desktop` bucket, with an IAM condition limiting writes to objects
-whose resource name starts with
-`projects/_/buckets/coder-desktop/objects/mutagen/`.
+The service account needs two roles on the `coder-desktop` bucket:
 
-The account also needs `roles/storage.objectViewer` on the bucket so
-`gcloud storage cp` can inspect destination objects and list the bucket.
-This read binding must be unconditional: object-prefix conditions cannot
-restrict bucket listing. It permits reading and listing the whole bucket,
-while writes remain limited to `mutagen/`. Neither role permits deletion.
+- `roles/storage.objectCreator`, with an IAM condition limiting writes to
+  objects whose resource name starts with
+  `projects/_/buckets/coder-desktop/objects/mutagen/`
+- `roles/storage.objectViewer`, without a condition
 
-The `coder-desktop` bucket already exists in project `coder-ci`. Its bucket
-resource, IAM policy, and import declarations are managed in coder/gcp under
-`projects/production/coder-ci`. Add both uploader bindings to that existing
-policy before running the upload workflow; do not create another bucket.
-No service account key or new GitHub secret is needed.
+The bucket is in project `coder-ci`. Its resource and IAM policy are managed
+in coder/gcp under `projects/production/coder-ci`.
