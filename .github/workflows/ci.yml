@@ -1,10 +1,10 @@
 # Set the workflow name.
 name: CI
 
-# Execute the workflow on branch pushes and pull requests.
+# Execute the workflow on pushes to main and on pull requests.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 # Define the workflow jobs.
@@ -165,3 +165,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           asset_paths: '["bundles/*"]'
+  required:
+    name: Required checks
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [macos, linux, windows, sidecar]
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: "Check the job results"
+        env:
+          MACOS_RESULT: ${{ needs.macos.result }}
+          LINUX_RESULT: ${{ needs.linux.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+          SIDECAR_RESULT: ${{ needs.sidecar.result }}
+        run: |
+          # Print the result of each job.
+          echo "macOS: ${MACOS_RESULT}"
+          echo "Linux: ${LINUX_RESULT}"
+          echo "Windows: ${WINDOWS_RESULT}"
+          echo "Sidecar: ${SIDECAR_RESULT}"
+
+          # Fail unless every job succeeded.
+          if [[ "${MACOS_RESULT}" != "success" ]] ||
+            [[ "${LINUX_RESULT}" != "success" ]] ||
+            [[ "${WINDOWS_RESULT}" != "success" ]] ||
+            [[ "${SIDECAR_RESULT}" != "success" ]]; then
+            echo "Not all jobs succeeded" 1>&2
+            exit 1
+          fi
